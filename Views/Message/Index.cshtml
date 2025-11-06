@@ -1,0 +1,61 @@
+@model List<DingDingApp.Models.MessageLog>
+@{
+    ViewData["Title"] = "消息管理";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>消息记录</h2>
+    <div>
+        <a asp-action="SendToAll" class="btn btn-primary">发送全体消息</a>
+        <a asp-action="SendToUser" class="btn btn-success">发送特定人员消息</a>
+    </div>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>消息类型</th>
+                <th>目标用户ID</th>
+                <th>消息内容</th>
+                <th>发送时间</th>
+                <th>状态</th>
+                <th>错误信息</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var log in Model)
+            {
+                <tr>
+                    <td>@log.Id</td>
+                    <td>
+                        @if (log.MessageType == "all")
+                        {
+                            <span class="badge bg-primary">全体消息</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-info">特定人员</span>
+                        }
+                    </td>
+                    <td>@log.TargetUserId</td>
+                    <td>@log.Content</td>
+                    <td>@log.SentAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>
+                        @if (log.IsSuccess)
+                        {
+                            <span class="badge bg-success">成功</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger">失败</span>
+                        }
+                    </td>
+                    <td>@log.ErrorMessage</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
