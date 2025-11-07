@@ -6,23 +6,24 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:80"
+      - "5678:80"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Server=db;Database=DingDingDb;User Id=sa;Password=YourPassword123!;TrustServerCertificate=True;
+      - ConnectionStrings__DefaultConnection=Server=db;Port=3306;Database=TestDb;User=root;Password=123456;
     depends_on:
       - db
 
   db:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mysql:8.0
     environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=YourPassword123!
+      - MYSQL_ROOT_PASSWORD=123456
+      - MYSQL_DATABASE=TestDb
     ports:
-      - "1433:1433"
+      - "3306:3306"
     volumes:
-      - sqlserver_data:/var/opt/mssql
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
 
 volumes:
-  sqlserver_data:
+  mysql_data:
 
