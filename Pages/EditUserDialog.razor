@@ -1,0 +1,74 @@
+@inject ApiService ApiService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem">
+    <RadzenFormField Text="用户ID" class="w-100">
+        <RadzenTextBox @bind-Value="@editRequest.UserId" class="w-100" Disabled="true" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="姓名" class="w-100">
+        <RadzenTextBox @bind-Value="@editRequest.Name" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="手机号" class="w-100">
+        <RadzenTextBox @bind-Value="@editRequest.Mobile" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="邮箱" class="w-100">
+        <RadzenTextBox @bind-Value="@editRequest.Email" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="部门" class="w-100">
+        <RadzenTextBox @bind-Value="@editRequest.Department" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="职位" class="w-100">
+        <RadzenTextBox @bind-Value="@editRequest.Position" class="w-100" />
+    </RadzenFormField>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+        <RadzenButton Text="取消" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))" />
+        <RadzenButton Text="保存" ButtonStyle="ButtonStyle.Primary" Click="@OnSave" />
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    [Parameter] public UserResponse? User { get; set; }
+    
+    private UpdateUserRequest editRequest = new();
+
+    protected override void OnParametersSet()
+    {
+        if (User != null)
+        {
+            editRequest.UserId = User.UserId;
+            editRequest.Name = User.Name;
+            editRequest.Mobile = User.Mobile;
+            editRequest.Email = User.Email;
+            editRequest.Department = User.Department;
+            editRequest.Position = User.Position;
+        }
+    }
+
+    private async Task OnSave()
+    {
+        if (User == null || string.IsNullOrWhiteSpace(editRequest.UserId) || string.IsNullOrWhiteSpace(editRequest.Name))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "警告", "用户ID和姓名不能为空");
+            return;
+        }
+
+        var response = await ApiService.UpdateUserAsync(User.Id, editRequest);
+        if (response?.Success == true)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "成功", "更新用户成功");
+            DialogService.Close(true);
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "错误", response?.Message ?? "更新用户失败");
+        }
+    }
+}
+

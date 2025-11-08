@@ -1,0 +1,42 @@
+@{
+    ViewData["Title"] = "发送特定人员消息";
+    var users = ViewBag.Users as List<DingDingApp.Models.User>;
+}
+
+<h2>发送特定人员消息</h2>
+<hr />
+
+<div class="row">
+    <div class="col-md-8">
+        <form asp-action="SendToUser" method="post">
+            @Html.AntiForgeryToken()
+            
+            <div class="form-group mb-3">
+                <label for="userId" class="control-label">选择用户</label>
+                <select name="userId" id="userId" class="form-control" required>
+                    <option value="">-- 请选择用户 --</option>
+                    @if (users != null)
+                    {
+                        @foreach (var user in users)
+                        {
+                            <option value="@user.UserId">@user.Name (@user.UserId)</option>
+                        }
+                    }
+                </select>
+                <span class="text-danger"></span>
+            </div>
+            
+            <div class="form-group mb-3">
+                <label for="content" class="control-label">消息内容</label>
+                <textarea name="content" id="content" class="form-control" rows="5" required></textarea>
+                <span class="text-danger"></span>
+            </div>
+            
+            <div class="form-group">
+                <input type="submit" value="发送" class="btn btn-primary" />
+                <a asp-action="Index" class="btn btn-secondary">返回列表</a>
+            </div>
+        </form>
+    </div>
+</div>
+

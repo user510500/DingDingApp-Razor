@@ -1,0 +1,141 @@
+@page "/users"
+@inject ApiService ApiService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<PageTitle>人员管理</PageTitle>
+
+<RadzenCard>
+    <RadzenStack Gap="1rem">
+        <RadzenRow Gap="1rem" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+            <RadzenText TextStyle="TextStyle.H3">人员列表</RadzenText>
+            <RadzenButton Icon="add" Text="新增人员" ButtonStyle="ButtonStyle.Primary" Click="@ShowCreateDialog" />
+        </RadzenRow>
+
+        @if (users != null && users.Any())
+        {
+            <RadzenDataGrid Data="@users" AllowPaging="true" PageSize="10" TItem="UserResponse" 
+                           AllowSorting="true" AllowFiltering="true" FilterMode="FilterMode.Advanced">
+                <Columns>
+                    <RadzenDataGridColumn TItem="UserResponse" Property="Id" Title="ID" Width="80px" />
+                    <RadzenDataGridColumn TItem="UserResponse" Property="UserId" Title="用户ID" />
+                    <RadzenDataGridColumn TItem="UserResponse" Property="Name" Title="姓名" />
+                    <RadzenDataGridColumn TItem="UserResponse" Property="Mobile" Title="手机号" />
+                    <RadzenDataGridColumn TItem="UserResponse" Property="Email" Title="邮箱" />
+                    <RadzenDataGridColumn TItem="UserResponse" Property="Department" Title="部门" />
+                    <RadzenDataGridColumn TItem="UserResponse" Property="Position" Title="职位" />
+                    <RadzenDataGridColumn TItem="UserResponse" Title="操作" Sortable="false" Filterable="false">
+                        <Template>
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                                <RadzenButton Icon="info" ButtonStyle="ButtonStyle.Info" 
+                                            Click="@(args => ShowDetailsDialog(context))" 
+                                            Size="ButtonSize.ExtraSmall" />
+                                <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Warning" 
+                                            Click="@(args => ShowEditDialog(context))" 
+                                            Size="ButtonSize.ExtraSmall" />
+                                <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" 
+                                            Click="@(args => ShowDeleteDialog(context))" 
+                                            Size="ButtonSize.ExtraSmall" />
+                            </RadzenStack>
+                        </Template>
+                    </RadzenDataGridColumn>
+                </Columns>
+            </RadzenDataGrid>
+        }
+        else if (isLoading)
+        {
+            <RadzenProgressBarCircular ShowValue="false" />
+        }
+        else
+        {
+            <RadzenText>暂无数据</RadzenText>
+        }
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    private List<UserResponse>? users;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        isLoading = true;
+        var response = await ApiService.GetUsersAsync();
+        if (response?.Success == true && response.Data != null)
+        {
+            users = response.Data;
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "错误", response?.Message ?? "加载用户列表失败");
+        }
+        isLoading = false;
+    }
+
+    private async Task ShowCreateDialog()
+    {
+        try
+        {
+            Console.WriteLine("开始打开创建用户对话框...");
+            var result = await DialogService.OpenAsync<CreateUserDialog>("新增用户", new Dictionary<string, object>(), 
+                new DialogOptions() 
+                { 
+                    Width = "500px", 
+                    Resizable = true, 
+                    Draggable = true 
+                });
+            Console.WriteLine($"对话框返回结果: {result}");
+            if (result == true)
+            {
+                await LoadUsers();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"打开对话框时出错: {ex.Message}");
+            NotificationService.Notify(NotificationSeverity.Error, "错误", $"打开对话框失败: {ex.Message}");
+        }
+    }
+
+    private async Task ShowEditDialog(UserResponse user)
+    {
+        var result = await DialogService.OpenAsync<EditUserDialog>("编辑用户", 
+            new Dictionary<string, object> { { "User", user } });
+        if (result == true)
+        {
+            await LoadUsers();
+        }
+    }
+
+    private async Task ShowDetailsDialog(UserResponse user)
+    {
+        await DialogService.OpenAsync<UserDetailsDialog>("用户详情", 
+            new Dictionary<string, object> { { "User", user } });
+    }
+
+    private async Task ShowDeleteDialog(UserResponse user)
+    {
+        var result = await DialogService.Confirm($"确定要删除用户 {user.Name} 吗？", "删除确认", 
+            new ConfirmOptions() { OkButtonText = "删除", CancelButtonText = "取消" });
+        
+        if (result == true)
+        {
+            var deleteResult = await ApiService.DeleteUserAsync(user.Id);
+            if (deleteResult?.Success == true)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "成功", "删除用户成功");
+                await LoadUsers();
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "错误", deleteResult?.Message ?? "删除用户失败");
+            }
+        }
+    }
+}
+

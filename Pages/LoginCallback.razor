@@ -1,0 +1,33 @@
+@page "/login/callback"
+@inject NavigationManager NavigationManager
+@inject IDingTalkService DingTalkService
+
+<PageTitle>登录中...</PageTitle>
+
+<RadzenCard>
+    <RadzenStack AlignItems="AlignItems.Center" Gap="1rem">
+        <RadzenProgressBarCircular ShowValue="false" />
+        <RadzenText>正在登录，请稍候...</RadzenText>
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    [Parameter, SupplyParameterFromQuery] public string? code { get; set; }
+    [Parameter, SupplyParameterFromQuery] public string? state { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(code))
+        {
+            // 登录回调会由 API 端点处理，这里重定向到首页
+            // 实际的登录逻辑在 /api/auth/callback 端点
+            NavigationManager.NavigateTo($"/api/auth/callback?code={code}&state={state}", true);
+        }
+        else
+        {
+            NavigationManager.NavigateTo("/");
+        }
+        return Task.CompletedTask;
+    }
+}
+

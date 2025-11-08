@@ -1,0 +1,23 @@
+@page "/simple-test"
+
+<PageTitle>简单测试</PageTitle>
+
+<div style="padding: 20px;">
+    <h1>简单测试页面</h1>
+    <p>如果你能看到这个页面，说明 Blazor 基本功能正常。</p>
+    <p>当前时间: @DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</p>
+    <p>计数器: @counter</p>
+    <button @onclick="IncrementCounter" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        点击我 (+1)
+    </button>
+</div>
+
+@code {
+    private int counter = 0;
+
+    private void IncrementCounter()
+    {
+        counter++;
+    }
+}
+

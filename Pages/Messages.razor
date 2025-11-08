@@ -1,0 +1,117 @@
+@page "/messages"
+@inject ApiService ApiService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<PageTitle>消息管理</PageTitle>
+
+<RadzenCard>
+    <RadzenStack Gap="1rem">
+        <RadzenRow Gap="1rem" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+            <RadzenText TextStyle="TextStyle.H3">消息记录</RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+                <RadzenButton Icon="send" Text="发送全体消息" ButtonStyle="ButtonStyle.Primary" 
+                            Click="@ShowSendToAllDialog" />
+                <RadzenButton Icon="mail" Text="发送特定人员消息" ButtonStyle="ButtonStyle.Success" 
+                            Click="@ShowSendToUserDialog" />
+            </RadzenStack>
+        </RadzenRow>
+
+        @if (messageLogs != null && messageLogs.Any())
+        {
+            <RadzenDataGrid Data="@messageLogs" AllowPaging="true" PageSize="10" TItem="MessageLog" 
+                           AllowSorting="true" AllowFiltering="true" FilterMode="FilterMode.Advanced">
+                <Columns>
+                    <RadzenDataGridColumn TItem="MessageLog" Property="Id" Title="ID" Width="80px" />
+                    <RadzenDataGridColumn TItem="MessageLog" Property="MessageType" Title="消息类型">
+                        <Template>
+                            @if (context.MessageType == "all")
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Primary" Text="全体消息" />
+                            }
+                            else
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Info" Text="特定人员" />
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MessageLog" Property="TargetUserId" Title="目标用户ID" />
+                    <RadzenDataGridColumn TItem="MessageLog" Property="Content" Title="消息内容" />
+                    <RadzenDataGridColumn TItem="MessageLog" Property="SentAt" Title="发送时间">
+                        <Template>
+                            @context.SentAt.ToString("yyyy-MM-dd HH:mm:ss")
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MessageLog" Property="IsSuccess" Title="状态">
+                        <Template>
+                            @if (context.IsSuccess)
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="成功" />
+                            }
+                            else
+                            {
+                                <RadzenBadge BadgeStyle="BadgeStyle.Danger" Text="失败" />
+                            }
+                        </Template>
+                    </RadzenDataGridColumn>
+                    <RadzenDataGridColumn TItem="MessageLog" Property="ErrorMessage" Title="错误信息" />
+                </Columns>
+            </RadzenDataGrid>
+        }
+        else if (isLoading)
+        {
+            <RadzenProgressBarCircular ShowValue="false" />
+        }
+        else
+        {
+            <RadzenText>暂无数据</RadzenText>
+        }
+    </RadzenStack>
+</RadzenCard>
+
+@code {
+    private List<MessageLog>? messageLogs;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMessageLogs();
+    }
+
+    private async Task LoadMessageLogs()
+    {
+        isLoading = true;
+        var response = await ApiService.GetMessageLogsAsync();
+        if (response?.Success == true && response.Data != null)
+        {
+            messageLogs = response.Data;
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "错误", response?.Message ?? "加载消息日志失败");
+        }
+        isLoading = false;
+    }
+
+    private async Task ShowSendToAllDialog()
+    {
+        var result = await DialogService.OpenAsync<SendToAllDialog>("发送全体消息", 
+            new Dictionary<string, object>());
+        if (result == true)
+        {
+            await LoadMessageLogs();
+        }
+    }
+
+    private async Task ShowSendToUserDialog()
+    {
+        var result = await DialogService.OpenAsync<SendToUserDialog>("发送特定人员消息", 
+            new Dictionary<string, object>());
+        if (result == true)
+        {
+            await LoadMessageLogs();
+        }
+    }
+}
+
+

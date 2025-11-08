@@ -1,0 +1,66 @@
+@inject ApiService ApiService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem">
+    <RadzenFormField Text="用户ID" class="w-100">
+        <RadzenTextBox @bind-Value="@userRequest.UserId" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="姓名" class="w-100">
+        <RadzenTextBox @bind-Value="@userRequest.Name" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="手机号" class="w-100">
+        <RadzenTextBox @bind-Value="@userRequest.Mobile" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="邮箱" class="w-100">
+        <RadzenTextBox @bind-Value="@userRequest.Email" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="部门" class="w-100">
+        <RadzenTextBox @bind-Value="@userRequest.Department" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="职位" class="w-100">
+        <RadzenTextBox @bind-Value="@userRequest.Position" class="w-100" />
+    </RadzenFormField>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+        <RadzenButton Text="取消" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))" />
+        <RadzenButton Text="保存" ButtonStyle="ButtonStyle.Primary" Click="@OnSave" />
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    private CreateUserRequest userRequest = new CreateUserRequest();
+
+    private async Task OnSave()
+    {
+        if (string.IsNullOrWhiteSpace(userRequest.UserId) || string.IsNullOrWhiteSpace(userRequest.Name))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "警告", "用户ID和姓名不能为空");
+            return;
+        }
+
+        try
+        {
+            var response = await ApiService.CreateUserAsync(userRequest);
+            if (response?.Success == true)
+            {
+                NotificationService.Notify(NotificationSeverity.Success, "成功", "创建用户成功");
+                DialogService.Close(true);
+            }
+            else
+            {
+                NotificationService.Notify(NotificationSeverity.Error, "错误", response?.Message ?? "创建用户失败");
+            }
+        }
+        catch (Exception ex)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "错误", $"创建用户失败: {ex.Message}");
+        }
+    }
+}
+

@@ -1,0 +1,148 @@
+@page "/"
+@namespace DingDingApp.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>钉钉管理系统</title>
+    <base href="~/" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="_content/Radzen.Blazor/css/material-base.css">
+    <link href="css/site.css" rel="stylesheet" />
+    <component type="typeof(Microsoft.AspNetCore.Components.Web.HeadOutlet)" render-mode="ServerPrerendered" />
+</head>
+<body>
+    <component type="typeof(App)" render-mode="ServerPrerendered" />
+
+    <div id="blazor-error-ui">
+        <environment include="Staging,Production">
+            发生错误。此应用程序在重新加载之前可能不再响应。
+        </environment>
+        <environment include="Development">
+            发生了未处理的异常。有关详细信息，请查看浏览器控制台。
+        </environment>
+        <a href="" class="reload">重新加载</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    
+    <style>
+        #blazor-error-ui {
+            background: lightyellow;
+            bottom: 0;
+            box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+            display: none;
+            left: 0;
+            padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+            position: fixed;
+            width: 100%;
+            z-index: 1000;
+        }
+        #blazor-error-ui .dismiss {
+            cursor: pointer;
+            position: absolute;
+            right: 0.75rem;
+            top: 0.5rem;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+        .loading-text {
+            margin-top: 1rem;
+            font-size: 1.2rem;
+            color: #666;
+        }
+        #app-loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+    </style>
+    <div id="app-loading">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">加载中...</span>
+        </div>
+        <div class="loading-text">正在加载应用...</div>
+    </div>
+    <script src="_framework/blazor.server.js"></script>
+    <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
+    <script src="js/site.js"></script>
+    <script>
+        // 监听 Blazor 错误
+        window.addEventListener('error', (event) => {
+            console.error('页面错误:', event.error, event.message, event.filename, event.lineno);
+            const loadingDiv = document.getElementById('app-loading');
+            if (loadingDiv) {
+                loadingDiv.innerHTML = '<div style="color: red; padding: 20px;">加载失败: ' + (event.message || '未知错误') + '<br/>请查看浏览器控制台获取详细信息</div>';
+            }
+        });
+        
+        // 监听未处理的 Promise 拒绝
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('未处理的 Promise 拒绝:', event.reason);
+        });
+        
+        // 监听页面加载
+        window.addEventListener('load', () => {
+            console.log('页面加载完成');
+            // 延迟隐藏加载提示，等待 Blazor 连接建立
+            setTimeout(() => {
+                const loadingDiv = document.getElementById('app-loading');
+                if (loadingDiv) {
+                    loadingDiv.style.display = 'none';
+                }
+            }, 1500);
+        });
+        
+        // 监听 Blazor 连接状态
+        if (window.Blazor) {
+            console.log('Blazor 对象已加载');
+            
+            // 监听 Blazor 连接错误（仅在对象存在时）
+            if (Blazor.defaultReconnectionHandler) {
+                try {
+                    Blazor.defaultReconnectionHandler._reconnectDisplay = {
+                        show: () => console.log('Blazor 正在重新连接...'),
+                        update: (d) => console.log('Blazor 重连进度:', d),
+                        rejected: () => console.error('Blazor 重连被拒绝')
+                    };
+                } catch (e) {
+                    console.warn('无法设置 Blazor 重连显示:', e);
+                }
+            }
+        }
+        
+        // 监听 DOM 变化，检查是否有错误信息
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1) { // Element node
+                        const errorUI = node.querySelector ? node.querySelector('#blazor-error-ui') : null;
+                        if (errorUI && errorUI.style.display !== 'none') {
+                            console.error('Blazor 错误 UI 已显示');
+                            const errorText = errorUI.textContent || errorUI.innerText;
+                            console.error('错误内容:', errorText);
+                        }
+                    }
+                });
+            });
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    </script>
+</body>
+</html>
+

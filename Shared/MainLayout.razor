@@ -1,0 +1,100 @@
+@using Radzen
+@using Radzen.Blazor
+@inherits LayoutComponentBase
+
+<RadzenSidebar @bind-Expanded="sidebarExpanded" class="rz-sidebar">
+    <RadzenSidebarToggle Click="@(() => sidebarExpanded = !sidebarExpanded)" />
+    <RadzenPanelMenu>
+        <RadzenPanelMenuItem Text="首页" Path="/">
+            <RadzenIcon Icon="home" class="rz-panel-menu-icon" />
+        </RadzenPanelMenuItem>
+        @if (isLoggedIn)
+        {
+            <RadzenPanelMenuItem Text="人员管理" Path="/users">
+                <RadzenIcon Icon="people" class="rz-panel-menu-icon" />
+            </RadzenPanelMenuItem>
+            <RadzenPanelMenuItem Text="消息管理" Path="/messages">
+                <RadzenIcon Icon="message" class="rz-panel-menu-icon" />
+            </RadzenPanelMenuItem>
+        }
+    </RadzenPanelMenu>
+</RadzenSidebar>
+
+<RadzenBody>
+    <RadzenHeader>
+        <div class="row w-100">
+            <div class="col d-flex justify-content-start align-items-center">
+                <RadzenSidebarToggle Click="@(() => sidebarExpanded = !sidebarExpanded)" />
+                <h3>钉钉管理系统</h3>
+            </div>
+            <div class="col d-flex justify-content-end align-items-center">
+                @if (isLoggedIn)
+                {
+                    <span class="me-3">欢迎, @userName</span>
+                    <RadzenButton Text="退出" ButtonStyle="ButtonStyle.Danger" Click="@OnLogout" />
+                }
+            </div>
+        </div>
+    </RadzenHeader>
+    
+    <RadzenContentContainer Name="main">
+        <RadzenNotification />
+        <RadzenDialog />
+        <RadzenTooltip />
+        <RadzenContextMenu />
+        @Body
+    </RadzenContentContainer>
+
+    <RadzenFooter>
+        <div class="row w-100">
+            <div class="col text-center">
+                <span>© 2024 钉钉管理系统</span>
+            </div>
+        </div>
+    </RadzenFooter>
+</RadzenBody>
+
+@code {
+    bool sidebarExpanded = true;
+    bool isLoggedIn = false;
+    string userName = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        // 不在初始化时等待，让页面先渲染
+        // 使用异步方法在后台检查登录状态
+        _ = CheckLoginStatusAsync();
+    }
+    
+    private async Task CheckLoginStatusAsync()
+    {
+        await Task.Delay(300); // 延迟一下，让主页面先渲染
+        await CheckLoginStatus();
+        StateHasChanged();
+    }
+
+    private async Task CheckLoginStatus()
+    {
+        try
+        {
+            var response = await apiService.GetLoginStatusAsync();
+            if (response?.Success == true && response.Data != null)
+            {
+                isLoggedIn = response.Data.IsLoggedIn;
+                userName = response.Data.UserName ?? string.Empty;
+            }
+        }
+        catch
+        {
+            isLoggedIn = false;
+        }
+    }
+
+    private async Task OnLogout()
+    {
+        await apiService.LogoutAsync();
+        isLoggedIn = false;
+        navigationManager.NavigateTo("/", true);
+    }
+}
+

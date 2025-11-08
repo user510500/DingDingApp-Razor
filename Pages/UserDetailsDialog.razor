@@ -1,0 +1,54 @@
+@if (User != null)
+{
+    <RadzenStack Gap="1rem">
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="用户ID:" />
+            <RadzenText>@User.UserId</RadzenText>
+        </RadzenStack>
+        
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="姓名:" />
+            <RadzenText>@User.Name</RadzenText>
+        </RadzenStack>
+        
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="手机号:" />
+            <RadzenText>@User.Mobile</RadzenText>
+        </RadzenStack>
+        
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="邮箱:" />
+            <RadzenText>@User.Email</RadzenText>
+        </RadzenStack>
+        
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="部门:" />
+            <RadzenText>@User.Department</RadzenText>
+        </RadzenStack>
+        
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="职位:" />
+            <RadzenText>@User.Position</RadzenText>
+        </RadzenStack>
+        
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="创建时间:" />
+            <RadzenText>@User.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</RadzenText>
+        </RadzenStack>
+        
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+            <RadzenLabel Text="更新时间:" />
+            <RadzenText>@User.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</RadzenText>
+        </RadzenStack>
+
+        <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End">
+            <RadzenButton Text="关闭" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close())" />
+        </RadzenStack>
+    </RadzenStack>
+}
+
+@code {
+    [Parameter] public UserResponse? User { get; set; }
+    [Inject] DialogService DialogService { get; set; } = default!;
+}
+

@@ -1,24 +1,40 @@
 using Microsoft.EntityFrameworkCore;
+using Pomelo.EntityFrameworkCore.MySql.Infrastructure;
 using DingDingApp.Data;
 using DingDingApp.Services;
 using DingDingApp.Models;
 using DingDingApp.DTOs;
 using Microsoft.AspNetCore.Mvc;
+using Radzen;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 添加 Blazor Server 支持
+builder.Services.AddRazorPages();
+builder.Services.AddServerSideBlazor();
 
 // 配置数据库
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+    options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 33))));
 
-// 添加HttpClientFactory
+// 添加HttpClientFactory，配置 Cookie 处理
 builder.Services.AddHttpClient();
+builder.Services.AddHttpContextAccessor(); // 添加 HttpContextAccessor 支持
 
 // 注册服务
 builder.Services.AddScoped<IDingTalkService, DingTalkService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
+
+// 注册 API 服务（用于前端调用）
+builder.Services.AddScoped<ApiService>();
+
+// 注册 Radzen 服务
+builder.Services.AddScoped<DialogService>();
+builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<TooltipService>();
+builder.Services.AddScoped<ContextMenuService>();
 
 // 配置Session（用于登录状态管理）
 builder.Services.AddDistributedMemoryCache();
@@ -27,7 +43,11 @@ builder.Services.AddSession(options =>
     options.IdleTimeout = TimeSpan.FromMinutes(30);
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
+    options.Cookie.SameSite = SameSiteMode.Lax; // 添加 SameSite 设置
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // 允许 HTTP
 });
+
+// 如果其他服务需要，可在此注册 HttpContextAccessor
 
 // 配置钉钉应用信息
 builder.Services.Configure<DingDingApp.Options.DingTalkOptions>(builder.Configuration.GetSection("DingTalk"));
@@ -60,26 +80,44 @@ var app = builder.Build();
 // 配置HTTP请求管道
 if (app.Environment.IsDevelopment())
 {
+    app.UseDeveloperExceptionPage();
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "钉钉管理系统 API v1");
-        c.RoutePrefix = string.Empty; // 将 Swagger UI 设置为根路径
+        c.RoutePrefix = "swagger"; // Swagger UI 路径改为 /swagger
     });
 }
+else
+{
+    app.UseExceptionHandler("/Error");
+}
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection(); // 在Docker中只使用HTTP，所以注释掉HTTPS重定向
+app.UseStaticFiles();
+app.UseRouting();
 app.UseSession();
 app.UseCors("AllowAll");
+app.UseAuthorization();
 
-// 确保数据库已创建
+// 确保数据库已创建（暂时禁用，避免阻塞启动）
+try
+{
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     dbContext.Database.EnsureCreated();
+    }
+}
+catch (Exception ex)
+{
+    // 记录错误但不阻塞应用启动
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogWarning(ex, "数据库初始化失败，但应用将继续启动");
 }
 
 // ==================== 认证相关 API ====================
+// 注意：API 端点必须在 Blazor 路由之前注册
 
 // 获取二维码登录URL
 app.MapGet("/api/auth/qrcode", async (IDingTalkService dingTalkService) =>
@@ -100,7 +138,7 @@ app.MapGet("/api/auth/qrcode", async (IDingTalkService dingTalkService) =>
 .WithName("GetQrCode")
 .WithTags("认证");
 
-// 登录回调
+// 登录回调 - 处理钉钉回调后重定向到前端
 app.MapGet("/api/auth/callback", async (
     string? code,
     string? state,
@@ -110,7 +148,7 @@ app.MapGet("/api/auth/callback", async (
 {
     if (string.IsNullOrEmpty(code))
     {
-        return Results.BadRequest(ApiResponse.FailResult("授权码不能为空"));
+        return Results.Redirect("/?error=授权码不能为空");
     }
 
     try
@@ -122,23 +160,16 @@ app.MapGet("/api/auth/callback", async (
             context.Session.SetString("UserId", userInfo["openid"]?.ToString() ?? "");
             context.Session.SetString("UserName", userInfo["nick"]?.ToString() ?? "");
 
-            return Results.Ok(ApiResponse<LoginStatusResponse>.SuccessResult(
-                new LoginStatusResponse
-                {
-                    IsLoggedIn = true,
-                    UserId = userInfo["openid"]?.ToString(),
-                    UserName = userInfo["nick"]?.ToString()
-                },
-                "登录成功"
-            ));
+            // 重定向到用户管理页面
+            return Results.Redirect("/users");
         }
 
-        return Results.BadRequest(ApiResponse.FailResult("登录失败，未获取到用户信息"));
+        return Results.Redirect("/?error=登录失败，未获取到用户信息");
     }
     catch (Exception ex)
     {
         logger.LogError(ex, "登录回调处理失败");
-        return Results.BadRequest(ApiResponse.FailResult($"登录失败: {ex.Message}"));
+        return Results.Redirect($"/?error={Uri.EscapeDataString(ex.Message)}");
     }
 })
 .WithName("AuthCallback")
@@ -170,6 +201,52 @@ app.MapPost("/api/auth/logout", (HttpContext context) =>
     return Results.Ok(ApiResponse.SuccessResult("登出成功"));
 })
 .WithName("Logout")
+.WithTags("认证");
+
+// 开发模式：跳过登录
+app.MapPost("/api/auth/dev-login", (HttpContext context, ILogger<Program> logger) =>
+{
+    try
+    {
+        logger.LogInformation("开发模式登录请求开始");
+        
+        // 确保 Session 已加载
+        if (!context.Session.IsAvailable)
+        {
+            logger.LogWarning("Session 不可用，尝试加载");
+            context.Session.LoadAsync().Wait();
+        }
+        
+        // 设置开发模式的登录信息
+        context.Session.SetString("UserId", "dev-user-001");
+        context.Session.SetString("UserName", "开发测试用户");
+        
+        // 提交 Session 更改
+        context.Session.CommitAsync().Wait();
+        
+        logger.LogInformation("开发模式登录成功 - UserId: dev-user-001, SessionId: {SessionId}", 
+            context.Session.Id);
+        
+        var response = ApiResponse<LoginStatusResponse>.SuccessResult(
+            new LoginStatusResponse
+            {
+                IsLoggedIn = true,
+                UserId = "dev-user-001",
+                UserName = "开发测试用户"
+            },
+            "开发模式登录成功"
+        );
+        
+        return Results.Ok(response);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "开发模式登录失败: {Error}", ex.Message);
+        return Results.BadRequest(ApiResponse<LoginStatusResponse>.FailResult(
+            $"开发模式登录失败: {ex.Message}\n堆栈跟踪: {ex.StackTrace}"));
+    }
+})
+.WithName("DevLogin")
 .WithTags("认证");
 
 // ==================== 用户管理 API ====================
@@ -467,6 +544,11 @@ app.MapPost("/api/messages/send-user", async (
 })
 .WithName("SendMessageToUser")
 .WithTags("消息管理");
+
+// 配置 Blazor（必须在所有 API 端点之后）
+app.MapRazorPages();
+app.MapBlazorHub();
+app.MapFallbackToPage("/_Host");
 
 app.Run();
 

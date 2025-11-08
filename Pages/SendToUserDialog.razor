@@ -1,0 +1,64 @@
+@inject ApiService ApiService
+@inject DialogService DialogService
+@inject NotificationService NotificationService
+
+<RadzenStack Gap="1rem">
+    <RadzenFormField Text="选择用户" class="w-100">
+        <RadzenDropDown @bind-Value="@selectedUserId" Data="@users" 
+                       TextProperty="Name" ValueProperty="UserId" 
+                       Placeholder="请选择用户" class="w-100" />
+    </RadzenFormField>
+    
+    <RadzenFormField Text="消息内容" class="w-100">
+        <RadzenTextArea @bind-Value="@messageRequest.Content" Rows="5" class="w-100" />
+    </RadzenFormField>
+
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.End" Gap="0.5rem">
+        <RadzenButton Text="取消" ButtonStyle="ButtonStyle.Light" Click="@(() => DialogService.Close(false))" />
+        <RadzenButton Text="发送" ButtonStyle="ButtonStyle.Primary" Click="@OnSend" />
+    </RadzenStack>
+</RadzenStack>
+
+@code {
+    [Parameter] public SendMessageToUserRequest messageRequest { get; set; } = new();
+    
+    private List<UserResponse>? users;
+    private string? selectedUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var response = await ApiService.GetUsersAsync();
+        if (response?.Success == true && response.Data != null)
+        {
+            users = response.Data;
+        }
+    }
+
+    private async Task OnSend()
+    {
+        if (string.IsNullOrWhiteSpace(selectedUserId))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "警告", "请选择接收用户");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(messageRequest.Content))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "警告", "消息内容不能为空");
+            return;
+        }
+
+        messageRequest.UserId = selectedUserId;
+        var response = await ApiService.SendMessageToUserAsync(messageRequest);
+        if (response?.Success == true)
+        {
+            NotificationService.Notify(NotificationSeverity.Success, "成功", "消息发送成功");
+            DialogService.Close(true);
+        }
+        else
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "错误", response?.Message ?? "消息发送失败");
+        }
+    }
+}
+

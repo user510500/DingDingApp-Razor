@@ -1,0 +1,21 @@
+@page "/no-layout-test"
+@attribute [Layout(null)]
+
+<PageTitle>无布局测试</PageTitle>
+
+<div style="padding: 50px; background: yellow; min-height: 100vh;">
+    <h1 style="color: red; font-size: 72px; margin: 0;">
+        如果你能看到这个红色大标题，说明 Blazor 组件渲染正常！
+    </h1>
+    <p style="font-size: 32px; margin-top: 20px;">这是一个不使用任何布局的测试页面。</p>
+    <p style="font-size: 24px;">当前时间: @DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</p>
+    <div style="margin-top: 50px; padding: 20px; background: white; border: 5px solid red;">
+        <h2 style="color: blue;">测试内容区域</h2>
+        <p>如果你能看到这个白色框，说明页面完全正常。</p>
+    </div>
+</div>
+
+@code {
+    // 不依赖任何服务
+}
+

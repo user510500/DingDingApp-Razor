@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>测试页面</title>
+</head>
+<body>
+    <h1 style="color: red; font-size: 48px;">如果你能看到这个，说明服务器工作正常！</h1>
+    <p>当前时间：<span id="time"></span></p>
+    <script>
+        document.getElementById('time').textContent = new Date().toLocaleString();
+        console.log('静态 HTML 页面加载成功！');
+    </script>
+</body>
+</html>
