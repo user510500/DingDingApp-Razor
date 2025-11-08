@@ -50,18 +50,20 @@
     {
         <div style="text-align: center; margin: 20px 0;">
             <h3>请使用钉钉APP扫描二维码登录</h3>
-            <div id="qrcode" style="display: inline-block; padding: 20px; background: white; border: 2px solid #ddd; border-radius: 8px; margin: 20px 0;">
-                <img src="@GetQrCodeImageUrl()" alt="登录二维码" 
-                     style="width: 256px; height: 256px; display: block; margin: 0 auto; border: 1px solid #ddd; border-radius: 4px;"
-                     onerror="this.parentElement.innerHTML='<p style=&quot;color: red; padding: 20px;&quot;>二维码加载失败，请点击下方按钮打开登录页面</p>'" />
+            <div style="margin: 20px 0;">
+                <p style="color: #666; margin-bottom: 15px;">点击下方按钮打开钉钉登录页面，然后使用钉钉APP扫描页面上的二维码</p>
+                <button @onclick="@(() => NavigationManager.NavigateTo(qrCodeUrl, true))" 
+                        style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                    🔐 打开钉钉登录页面
+                </button>
             </div>
-            <p style="margin-top: 10px; color: #666;">或者</p>
-            <button @onclick="@(() => NavigationManager.NavigateTo(qrCodeUrl, true))" 
-                    style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;">
-                在新窗口打开登录页面
-            </button>
+            <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid #007bff;">
+                <p style="margin: 0; font-size: 14px; color: #495057;">
+                    <strong>提示：</strong> 钉钉扫码登录需要在钉钉官方登录页面完成。点击上方按钮后，会跳转到钉钉登录页面，使用钉钉APP扫描页面上的二维码即可完成登录。
+                </p>
+            </div>
             <div style="margin-top: 10px; padding: 10px; background: #e7f3ff; border-radius: 4px;">
-                <p style="margin: 0; font-size: 14px; color: #0066cc;">二维码 URL: <a href="@qrCodeUrl" target="_blank">@qrCodeUrl</a></p>
+                <p style="margin: 0; font-size: 12px; color: #0066cc;">登录页面 URL: <a href="@qrCodeUrl" target="_blank" style="word-break: break-all;">@qrCodeUrl</a></p>
             </div>
         </div>
     }
@@ -152,9 +154,48 @@
     
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // 二维码现在直接在 Razor 模板中渲染，不需要 JavaScript 处理
-        // 保留此方法以便将来扩展
+        // 如果已显示二维码，开始轮询检查登录状态
+        if (firstRender && !string.IsNullOrEmpty(qrCodeUrl) && string.IsNullOrEmpty(queryError))
+        {
+            _ = StartLoginStatusPolling();
+        }
         await Task.CompletedTask;
+    }
+    
+    private async Task StartLoginStatusPolling()
+    {
+        // 每2秒检查一次登录状态，最多检查300次（10分钟）
+        int maxAttempts = 300;
+        int attempts = 0;
+        
+        Logger.LogInformation("开始轮询登录状态");
+        
+        while (!string.IsNullOrEmpty(qrCodeUrl) && string.IsNullOrEmpty(queryError) && !isLoading && attempts < maxAttempts)
+        {
+            await Task.Delay(2000);
+            attempts++;
+            
+            try
+            {
+                var statusResponse = await ApiService.GetLoginStatusAsync();
+                if (statusResponse?.Success == true && statusResponse.Data?.IsLoggedIn == true)
+                {
+                    Logger.LogInformation("检测到用户已登录，跳转到 /users");
+                    NavigationManager.NavigateTo("/users", true);
+                    break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "检查登录状态失败");
+                // 继续轮询，不中断
+            }
+        }
+        
+        if (attempts >= maxAttempts)
+        {
+            Logger.LogInformation("登录状态轮询超时，停止检查");
+        }
     }
     
     private async Task LoadDataAsync()
@@ -205,8 +246,14 @@
                 qrCodeUrl = response.Data.QrCodeUrl ?? string.Empty;
                 Logger.LogInformation("获取二维码成功: {Url}", qrCodeUrl);
                 
-                // 更新 UI，OnAfterRenderAsync 会自动处理二维码生成
+                // 更新 UI
                 StateHasChanged();
+                
+                // 如果成功加载二维码，开始轮询登录状态
+                if (!string.IsNullOrEmpty(qrCodeUrl) && string.IsNullOrEmpty(errorMessage))
+                {
+                    _ = StartLoginStatusPolling();
+                }
             }
             else
             {

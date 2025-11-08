@@ -14,7 +14,7 @@
 </RadzenStack>
 
 @code {
-    [Parameter] public SendMessageRequest messageRequest { get; set; } = new();
+    private SendMessageRequest messageRequest = new();
 
     private async Task OnSend()
     {

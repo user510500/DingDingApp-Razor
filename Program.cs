@@ -6,6 +6,9 @@ using DingDingApp.Models;
 using DingDingApp.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using Radzen;
+using Serilog;
+using Microsoft.Extensions.Options;
+using DingDingApp.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -75,6 +78,39 @@ builder.Services.AddCors(options =>
     });
 });
 
+// 配置 Serilog 文件日志
+try
+{
+    // 确保 logs 目录存在
+    var logsDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
+    if (!Directory.Exists(logsDir))
+    {
+        Directory.CreateDirectory(logsDir);
+    }
+
+    Log.Logger = new LoggerConfiguration()
+        .MinimumLevel.Information()
+        .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Warning)
+        .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+        .Enrich.FromLogContext()
+        .WriteTo.Console(outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+        .WriteTo.File(
+            path: Path.Combine(logsDir, "dingding-.log"),
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 7,
+            outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+        .CreateLogger();
+
+    builder.Host.UseSerilog();
+    
+    Log.Information("Serilog 日志已配置，日志文件位置: {LogPath}", logsDir);
+}
+catch (Exception ex)
+{
+    // 如果 Serilog 配置失败，使用默认日志
+    Console.WriteLine($"警告：Serilog 配置失败，将使用默认日志: {ex.Message}");
+}
+
 var app = builder.Build();
 
 // 配置HTTP请求管道
@@ -120,11 +156,13 @@ catch (Exception ex)
 // 注意：API 端点必须在 Blazor 路由之前注册
 
 // 获取二维码登录URL
-app.MapGet("/api/auth/qrcode", async (IDingTalkService dingTalkService) =>
+app.MapGet("/api/auth/qrcode", async (IDingTalkService dingTalkService, HttpRequest request) =>
 {
     try
     {
-        var qrCodeUrl = await dingTalkService.GetQrCodeUrlAsync();
+        // 获取当前请求的基础URL（协议+主机+端口）
+        var baseUrl = $"{request.Scheme}://{request.Host}";
+        var qrCodeUrl = await dingTalkService.GetQrCodeUrlAsync(baseUrl);
         return Results.Ok(ApiResponse<AuthResponse>.SuccessResult(
             new AuthResponse { QrCodeUrl = qrCodeUrl },
             "获取二维码成功"
@@ -138,6 +176,76 @@ app.MapGet("/api/auth/qrcode", async (IDingTalkService dingTalkService) =>
 .WithName("GetQrCode")
 .WithTags("认证");
 
+// 诊断API - 验证钉钉配置
+app.MapGet("/api/auth/diagnose", async (IDingTalkService dingTalkService, IOptions<DingTalkOptions> options, ILogger<Program> logger) =>
+{
+    try
+    {
+        var diagnoseResults = new Dictionary<string, object>();
+        
+        // 1. 检查配置是否存在
+        diagnoseResults["AppKey配置"] = string.IsNullOrEmpty(options.Value.AppKey) ? "未配置" : $"已配置 (长度: {options.Value.AppKey.Length})";
+        diagnoseResults["AppSecret配置"] = string.IsNullOrEmpty(options.Value.AppSecret) ? "未配置" : $"已配置 (长度: {options.Value.AppSecret.Length})";
+        diagnoseResults["AppKey值"] = options.Value.AppKey;
+        
+        // 2. 测试普通API的access_token
+        try
+        {
+            var accessToken = await dingTalkService.GetAccessTokenAsync();
+            diagnoseResults["普通API测试"] = "成功";
+            diagnoseResults["AccessToken"] = accessToken.Substring(0, Math.Min(20, accessToken.Length)) + "...";
+        }
+        catch (Exception ex)
+        {
+            diagnoseResults["普通API测试"] = $"失败: {ex.Message}";
+        }
+        
+        // 3. 生成二维码URL（测试配置）
+        try
+        {
+            var qrCodeUrl = await dingTalkService.GetQrCodeUrlAsync("http://localhost:54507");
+            diagnoseResults["二维码URL生成"] = "成功";
+            diagnoseResults["二维码URL"] = qrCodeUrl;
+        }
+        catch (Exception ex)
+        {
+            diagnoseResults["二维码URL生成"] = $"失败: {ex.Message}";
+        }
+        
+        // 4. 提供配置建议
+        var suggestions = new List<string>();
+        if (string.IsNullOrEmpty(options.Value.AppKey) || options.Value.AppKey == "appKey")
+        {
+            suggestions.Add("AppKey 未正确配置，请检查 appsettings.json");
+        }
+        if (string.IsNullOrEmpty(options.Value.AppSecret) || options.Value.AppSecret == "appSecret")
+        {
+            suggestions.Add("AppSecret 未正确配置，请检查 appsettings.json");
+        }
+        if (options.Value.AppKey == "dingakpqehbge8672usj")
+        {
+            suggestions.Add("当前使用的 AppKey 可能是普通企业应用的，请确认是否使用了扫码登录应用的 AppKey");
+        }
+        if (suggestions.Count == 0)
+        {
+            suggestions.Add("配置看起来正常，如果仍然遇到 40001 错误，请确认：");
+            suggestions.Add("1. 使用的是扫码登录应用的 AppKey 和 AppSecret（不是普通企业应用）");
+            suggestions.Add("2. 在钉钉开放平台已配置回调地址：http://localhost:54507/api/auth/callback");
+            suggestions.Add("3. 扫码登录应用已启用");
+        }
+        diagnoseResults["配置建议"] = suggestions;
+        
+        return Results.Ok(ApiResponse<Dictionary<string, object>>.SuccessResult(diagnoseResults, "诊断完成"));
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "诊断API异常");
+        return Results.BadRequest(ApiResponse<Dictionary<string, object>>.FailResult($"诊断失败: {ex.Message}"));
+    }
+})
+.WithName("Diagnose")
+.WithTags("认证");
+
 // 登录回调 - 处理钉钉回调后重定向到前端
 app.MapGet("/api/auth/callback", async (
     string? code,
@@ -148,28 +256,68 @@ app.MapGet("/api/auth/callback", async (
 {
     if (string.IsNullOrEmpty(code))
     {
-        return Results.Redirect("/?error=授权码不能为空");
+        var errorMsg = Uri.EscapeDataString("授权码不能为空");
+        return Results.Redirect($"/?error={errorMsg}");
     }
 
     try
     {
+        logger.LogInformation("收到登录回调，code: {Code}, state: {State}", code, state);
+        
+        // 确保 Session 已加载
+        await context.Session.LoadAsync();
+        
         var userInfo = await dingTalkService.GetUserInfoByCodeAsync(code);
-        if (userInfo != null && userInfo.ContainsKey("openid"))
+        
+        if (userInfo == null)
         {
-            // 保存登录信息到Session
-            context.Session.SetString("UserId", userInfo["openid"]?.ToString() ?? "");
-            context.Session.SetString("UserName", userInfo["nick"]?.ToString() ?? "");
-
-            // 重定向到用户管理页面
-            return Results.Redirect("/users");
+            logger.LogWarning("GetUserInfoByCodeAsync 返回 null，可能 API 调用失败");
+            var errorMsg = Uri.EscapeDataString("登录失败：无法获取用户信息，请查看服务器日志");
+            return Results.Redirect($"/?error={errorMsg}");
         }
+        
+        logger.LogInformation("获取到用户信息: {UserInfo}", System.Text.Json.JsonSerializer.Serialize(userInfo));
+        
+        if (!userInfo.ContainsKey("openid"))
+        {
+            logger.LogWarning("用户信息中缺少 openid 字段: {UserInfo}", System.Text.Json.JsonSerializer.Serialize(userInfo));
+            var errorMsg = Uri.EscapeDataString($"登录失败：用户信息不完整。获取到的信息: {System.Text.Json.JsonSerializer.Serialize(userInfo)}");
+            return Results.Redirect($"/?error={errorMsg}");
+        }
+        
+        var openid = userInfo["openid"]?.ToString();
+        var nick = userInfo.ContainsKey("nick") ? userInfo["nick"]?.ToString() : "";
+        
+        if (string.IsNullOrEmpty(openid))
+        {
+            logger.LogWarning("openid 为空");
+            var errorMsg = Uri.EscapeDataString("登录失败：用户ID为空");
+            return Results.Redirect($"/?error={errorMsg}");
+        }
+        
+        // 保存登录信息到Session
+        context.Session.SetString("UserId", openid);
+        context.Session.SetString("UserName", nick ?? "");
+        
+        // 提交 Session 更改
+        await context.Session.CommitAsync();
 
-        return Results.Redirect("/?error=登录失败，未获取到用户信息");
+        logger.LogInformation("登录成功 - UserId: {UserId}, UserName: {UserName}", openid, nick);
+
+        // 重定向到用户管理页面
+        return Results.Redirect("/users");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "登录回调处理失败");
-        return Results.Redirect($"/?error={Uri.EscapeDataString(ex.Message)}");
+        logger.LogError(ex, "登录回调处理失败: {Message}, 堆栈: {StackTrace}", ex.Message, ex.StackTrace);
+        
+        // 开发环境：提示查看日志
+        var errorDetails = app.Environment.IsDevelopment() 
+            ? $"登录失败：{ex.Message}\n\n请查看运行应用的命令行窗口或 Visual Studio 的输出窗口中的日志信息。"
+            : "登录失败，请查看服务器日志";
+        
+        var errorMsg = Uri.EscapeDataString(errorDetails);
+        return Results.Redirect($"/?error={errorMsg}");
     }
 })
 .WithName("AuthCallback")
@@ -550,5 +698,12 @@ app.MapRazorPages();
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 
-app.Run();
+try
+{
+    app.Run();
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 

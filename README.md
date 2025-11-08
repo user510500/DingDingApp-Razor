@@ -69,18 +69,43 @@ DingDingApp/
 
 ### 1. 钉钉应用配置
 
+**重要提示：扫码登录应用配置**
+
+本系统使用钉钉扫码登录功能，需要配置**扫码登录应用**的 AppKey 和 AppSecret。
+
+**扫码登录应用和普通企业应用是不同的应用**，它们使用不同的 AppKey 和 AppSecret。
+
+#### 获取扫码登录应用的 AppKey 和 AppSecret
+
+1. 登录钉钉开放平台：https://open.dingtalk.com
+2. 进入【应用开发】->【移动接入应用】->【扫码登录应用】
+3. 找到您的扫码登录应用（如果还没有，需要先创建）
+4. 在应用详情页面查看：
+   - **AppKey**（应用标识）
+   - **AppSecret**（应用密钥）
+5. 配置回调地址：
+   - 开发环境：`http://localhost:54507/api/auth/callback`
+   - 生产环境：`https://your-domain.com/api/auth/callback`
+
+#### 配置 appsettings.json
+
 在 `appsettings.json` 中配置钉钉应用信息：
 
 ```json
 {
   "DingTalk": {
-    "AppKey": "your_app_key",
-    "AppSecret": "your_app_secret",
+    "AppKey": "your_qrcode_login_app_key",
+    "AppSecret": "your_qrcode_login_app_secret",
     "AgentId": "your_agent_id",
     "CorpId": "your_corp_id"
   }
 }
 ```
+
+**注意：**
+- `AppKey` 和 `AppSecret` 必须使用**扫码登录应用**的值，不能使用普通企业应用的值
+- 如果使用普通企业应用的 AppSecret，扫码登录会返回 `40001` 错误（Secret错误）
+- `AgentId` 和 `CorpId` 可以使用普通企业应用的值（用于发送工作通知）
 
 ### 2. 数据库配置
 

@@ -20,7 +20,7 @@
 </RadzenStack>
 
 @code {
-    [Parameter] public SendMessageToUserRequest messageRequest { get; set; } = new();
+    private SendMessageToUserRequest messageRequest = new();
     
     private List<UserResponse>? users;
     private string? selectedUserId;
