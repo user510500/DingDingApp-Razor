@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using DingDingApp.Options;
+using QRCoder;
 
 namespace DingDingApp.Services
 {
@@ -78,6 +79,28 @@ namespace DingDingApp.Services
             
             _logger.LogInformation("生成二维码登录URL: {Url}, 回调地址: {CallbackUrl}", url, callbackUrl);
             return url;
+        }
+
+        /// <summary>
+        /// 获取二维码图片（使用 QRCoder 生成）
+        /// 使用 AlibabaCloud.SDK.Dingtalk 获取登录信息，然后使用 QRCoder 生成二维码图片
+        /// </summary>
+        public async Task<byte[]> GetQrCodeImageAsync(string? baseUrl = null)
+        {
+            // 获取登录URL（基于 AlibabaCloud.SDK.Dingtalk 的配置）
+            var loginUrl = await GetQrCodeUrlAsync(baseUrl);
+            
+            // 使用 QRCoder 生成二维码图片（在后端生成，避免前端跳转）
+            return await Task.Run(() =>
+            {
+                using var qrGenerator = new QRCodeGenerator();
+                var qrCodeData = qrGenerator.CreateQrCode(loginUrl, QRCodeGenerator.ECCLevel.Q);
+                using var qrCode = new PngByteQRCode(qrCodeData);
+                var qrCodeBytes = qrCode.GetGraphic(20);
+                
+                _logger.LogInformation("成功生成二维码图片，大小: {Size} bytes", qrCodeBytes.Length);
+                return qrCodeBytes;
+            });
         }
 
         public async Task<Dictionary<string, object>?> GetUserInfoByCodeAsync(string code)
@@ -182,9 +205,43 @@ namespace DingDingApp.Services
                 // 解析最终响应（使用最新的响应）
                 var tokenResult = result1;
 
-                // 成功获取 sns_token
-                var errcode = tokenResult.GetProperty("errcode");
-                var snsToken = tokenResult.GetProperty("sns_token").GetString();
+                // 检查是否有错误码
+                if (tokenResult.TryGetProperty("errcode", out var errcode))
+                {
+                    var errcodeValue = errcode.GetInt32();
+                    if (errcodeValue != 0)
+                    {
+                        var errmsg = tokenResult.TryGetProperty("errmsg", out var errmsgElement) 
+                            ? errmsgElement.GetString() 
+                            : "未知错误";
+                        
+                        _logger.LogError("获取sns_token失败: errcode={Errcode}, errmsg={Errmsg}, 完整响应: {Content}", 
+                            errcodeValue, errmsg, tokenContent);
+                        
+                        // 如果是 40001 错误，提供更明确的提示
+                        if (errcodeValue == 40001)
+                        {
+                            throw new Exception(
+                                "获取sns_token失败：Secret错误。\n\n" +
+                                "这可能是因为：\n" +
+                                "1. 您使用的 AppSecret 不是扫码登录应用的 AppSecret\n" +
+                                "2. 扫码登录应用需要使用独立的 AppKey 和 AppSecret（与普通企业应用不同）\n" +
+                                "3. 请前往钉钉开放平台 -> 应用开发 -> 扫码登录应用，获取正确的 AppKey 和 AppSecret\n" +
+                                $"错误详情: {errmsg}");
+                        }
+                        
+                        throw new Exception($"获取sns_token失败: errcode={errcodeValue}, errmsg={errmsg}");
+                    }
+                }
+                
+                // 检查是否有 sns_token
+                if (!tokenResult.TryGetProperty("sns_token", out var snsTokenElement))
+                {
+                    _logger.LogError("响应中没有 sns_token 字段，完整响应: {Content}", tokenContent);
+                    throw new Exception($"获取sns_token失败: 响应中没有 sns_token 字段。响应内容: {tokenContent}");
+                }
+                
+                var snsToken = snsTokenElement.GetString();
                 if (string.IsNullOrEmpty(snsToken))
                 {
                     _logger.LogWarning("sns_token为空，响应内容: {Content}", tokenContent);

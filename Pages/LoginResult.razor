@@ -1,0 +1,111 @@
+@page "/login-result"
+@inject ApiService ApiService
+@inject NavigationManager NavigationManager
+@inject ILogger<LoginResult> Logger
+
+<PageTitle>登录结果</PageTitle>
+
+<div style="padding: 20px; max-width: 600px; margin: 0 auto; text-align: center;">
+    @if (hasError)
+    {
+        <div style="background: #f8d7da; color: #721c24; padding: 20px; margin: 20px 0; border: 1px solid #f5c6cb; border-radius: 8px;">
+            <h3 style="margin-top: 0; color: #721c24;">❌ 登录失败</h3>
+            <p style="margin: 10px 0;">@errorMessage</p>
+            <div style="margin-top: 20px;">
+                <button @onclick="GoToLogin" 
+                        style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                    返回登录页面
+                </button>
+            </div>
+        </div>
+    }
+    else if (isLoggedIn)
+    {
+        <div style="background: #d4edda; color: #155724; padding: 20px; margin: 20px 0; border: 1px solid #c3e6cb; border-radius: 8px;">
+            <h3 style="margin-top: 0; color: #155724;">✅ 登录成功</h3>
+            <p style="margin: 10px 0;">欢迎，@userName！</p>
+            <p style="margin: 10px 0; color: #666; font-size: 14px;">正在跳转到用户管理页面...</p>
+        </div>
+    }
+    else
+    {
+        <div style="padding: 20px;">
+            <p>正在处理登录结果...</p>
+            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto;"></div>
+        </div>
+    }
+</div>
+
+<style>
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
+
+@code {
+    private bool isLoggedIn = false;
+    private bool hasError = false;
+    private string? userName;
+    private string? errorMessage;
+    private bool isChecking = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // 使用 API 检查登录状态
+            var statusResponse = await ApiService.GetLoginStatusAsync();
+            
+            if (statusResponse?.Success == true && statusResponse.Data != null)
+            {
+                if (statusResponse.Data.IsLoggedIn)
+                {
+                    isLoggedIn = true;
+                    userName = statusResponse.Data.UserName ?? "用户";
+                    isChecking = false;
+                    Logger.LogInformation("登录成功，用户: {UserId}, 姓名: {UserName}", 
+                        statusResponse.Data.UserId, userName);
+                    
+                    // 2秒后自动跳转到用户管理页面
+                    _ = AutoRedirect();
+                }
+                else
+                {
+                    // 未登录，可能是登录失败
+                    hasError = true;
+                    errorMessage = "登录失败，请重试";
+                    isChecking = false;
+                    Logger.LogWarning("登录失败：未登录状态");
+                }
+            }
+            else
+            {
+                // API 调用失败，可能是登录失败
+                hasError = true;
+                errorMessage = statusResponse?.Message ?? "登录失败，请重试";
+                isChecking = false;
+                Logger.LogWarning("登录失败：{Message}", errorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "检查登录状态失败");
+            hasError = true;
+            errorMessage = $"检查登录状态失败: {ex.Message}";
+            isChecking = false;
+        }
+    }
+
+    private async Task AutoRedirect()
+    {
+        await Task.Delay(2000); // 等待2秒，让用户看到成功消息
+        NavigationManager.NavigateTo("/users", forceLoad: true);
+    }
+
+    private void GoToLogin()
+    {
+        NavigationManager.NavigateTo("/", forceLoad: true);
+    }
+}
+

@@ -9,6 +9,7 @@ using Radzen;
 using Serilog;
 using Microsoft.Extensions.Options;
 using DingDingApp.Options;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -155,7 +156,7 @@ catch (Exception ex)
 // ==================== 认证相关 API ====================
 // 注意：API 端点必须在 Blazor 路由之前注册
 
-// 获取二维码登录URL
+// 获取二维码登录URL（返回登录URL，用于前端生成二维码）
 app.MapGet("/api/auth/qrcode", async (IDingTalkService dingTalkService, HttpRequest request) =>
 {
     try
@@ -174,6 +175,28 @@ app.MapGet("/api/auth/qrcode", async (IDingTalkService dingTalkService, HttpRequ
     }
 })
 .WithName("GetQrCode")
+.WithTags("认证");
+
+// 获取二维码图片（直接返回二维码图片）
+app.MapGet("/api/auth/qrcode/image", async (IDingTalkService dingTalkService, HttpRequest request) =>
+{
+    try
+    {
+        // 获取当前请求的基础URL（协议+主机+端口）
+        var baseUrl = $"{request.Scheme}://{request.Host}";
+        
+        // 使用 QRCoder 生成二维码图片
+        var qrCodeImage = await dingTalkService.GetQrCodeImageAsync(baseUrl);
+        
+        // 返回图片
+        return Results.File(qrCodeImage, "image/png", "qrcode.png");
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest($"获取二维码图片失败: {ex.Message}");
+    }
+})
+.WithName("GetQrCodeImage")
 .WithTags("认证");
 
 // 诊断API - 验证钉钉配置
@@ -323,12 +346,93 @@ app.MapGet("/api/auth/callback", async (
 .WithName("AuthCallback")
 .WithTags("认证");
 
-// 检查登录状态
-app.MapGet("/api/auth/status", (HttpContext context) =>
+// 通过临时授权码登录（用于 DDLogin SDK 的消息回调）
+app.MapPost("/api/auth/login-by-code", async (
+    HttpContext context,
+    IDingTalkService dingTalkService,
+    ILogger<Program> logger) =>
 {
+    try
+    {
+        // 读取请求体
+        using var reader = new StreamReader(context.Request.Body);
+        var body = await reader.ReadToEndAsync();
+        var request = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(body);
+        
+        if (!request.TryGetProperty("code", out var codeElement) || string.IsNullOrEmpty(codeElement.GetString()))
+        {
+            logger.LogWarning("登录请求：授权码为空");
+            return Results.BadRequest(ApiResponse<object>.FailResult("授权码不能为空"));
+        }
+        
+        var code = codeElement.GetString()!;
+        logger.LogInformation("收到登录请求（通过临时授权码），code: {Code}", code);
+        
+        // 确保 Session 已加载
+        await context.Session.LoadAsync();
+        
+        var userInfo = await dingTalkService.GetUserInfoByCodeAsync(code);
+        
+        if (userInfo == null)
+        {
+            logger.LogWarning("GetUserInfoByCodeAsync 返回 null，可能 API 调用失败");
+            return Results.BadRequest(ApiResponse<object>.FailResult("登录失败：无法获取用户信息，请查看服务器日志"));
+        }
+        
+        logger.LogInformation("获取到用户信息: {UserInfo}", System.Text.Json.JsonSerializer.Serialize(userInfo));
+        
+        if (!userInfo.ContainsKey("openid"))
+        {
+            logger.LogWarning("用户信息中缺少 openid 字段: {UserInfo}", System.Text.Json.JsonSerializer.Serialize(userInfo));
+            return Results.BadRequest(ApiResponse<object>.FailResult($"登录失败：用户信息不完整"));
+        }
+        
+        var openid = userInfo["openid"]?.ToString();
+        var nick = userInfo.ContainsKey("nick") ? userInfo["nick"]?.ToString() : "";
+        
+        if (string.IsNullOrEmpty(openid))
+        {
+            logger.LogWarning("openid 为空");
+            return Results.BadRequest(ApiResponse<object>.FailResult("登录失败：用户ID为空"));
+        }
+        
+        // 保存登录信息到Session
+        context.Session.SetString("UserId", openid);
+        context.Session.SetString("UserName", nick ?? "");
+        
+        // 提交 Session 更改
+        await context.Session.CommitAsync();
+
+        logger.LogInformation("登录成功 - UserId: {UserId}, UserName: {UserName}", openid, nick);
+
+        // 返回成功响应
+        return Results.Ok(ApiResponse<object>.SuccessResult(null, "登录成功"));
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "登录处理失败: {Message}, 堆栈: {StackTrace}", ex.Message, ex.StackTrace);
+        
+        var errorDetails = app.Environment.IsDevelopment() 
+            ? $"登录失败：{ex.Message}"
+            : "登录失败，请查看服务器日志";
+        
+        return Results.BadRequest(ApiResponse<object>.FailResult(errorDetails));
+    }
+})
+.WithName("LoginByCode")
+.WithTags("认证");
+
+// 检查登录状态
+app.MapGet("/api/auth/status", async (HttpContext context, ILogger<Program> logger) =>
+{
+    // 确保 Session 已加载
+    await context.Session.LoadAsync();
+    
     var userId = context.Session.GetString("UserId");
     var userName = context.Session.GetString("UserName");
     var isLoggedIn = !string.IsNullOrEmpty(userId);
+    
+    logger.LogDebug("检查登录状态: IsLoggedIn={IsLoggedIn}, UserId={UserId}", isLoggedIn, userId);
 
     return Results.Ok(ApiResponse<LoginStatusResponse>.SuccessResult(
         new LoginStatusResponse

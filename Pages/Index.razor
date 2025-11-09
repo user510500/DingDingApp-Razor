@@ -49,21 +49,21 @@
     else if (!string.IsNullOrEmpty(qrCodeUrl))
     {
         <div style="text-align: center; margin: 20px 0;">
-            <h3>请使用钉钉APP扫描二维码登录</h3>
+            <h3>请使用钉钉APP扫描下方二维码登录</h3>
             <div style="margin: 20px 0;">
-                <p style="color: #666; margin-bottom: 15px;">点击下方按钮打开钉钉登录页面，然后使用钉钉APP扫描页面上的二维码</p>
-                <button @onclick="@(() => NavigationManager.NavigateTo(qrCodeUrl, true))" 
-                        style="padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                    🔐 打开钉钉登录页面
-                </button>
+                <!-- 使用钉钉官方 SDK 直接显示官方二维码 -->
+                <div id="login_container" style="margin: 20px auto; width: 300px; height: 300px; border: 2px solid #ddd; border-radius: 8px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); background: white; display: flex; align-items: center; justify-content: center;">
+                    <p style="color: #999;">正在加载二维码...</p>
+                </div>
+                <p style="color: #666; margin-top: 15px; font-size: 14px;">
+                    <strong>使用钉钉APP扫描上方二维码即可完成登录</strong><br/>
+                    <span style="font-size: 12px; color: #999;">提示：请使用钉钉APP的扫一扫功能，不要使用其他扫码工具</span>
+                </p>
             </div>
             <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid #007bff;">
                 <p style="margin: 0; font-size: 14px; color: #495057;">
-                    <strong>提示：</strong> 钉钉扫码登录需要在钉钉官方登录页面完成。点击上方按钮后，会跳转到钉钉登录页面，使用钉钉APP扫描页面上的二维码即可完成登录。
+                    <strong>提示：</strong> 这是钉钉官方二维码，直接显示在本页面。扫描后会在钉钉APP中完成登录，不会跳转到浏览器页面。
                 </p>
-            </div>
-            <div style="margin-top: 10px; padding: 10px; background: #e7f3ff; border-radius: 4px;">
-                <p style="margin: 0; font-size: 12px; color: #0066cc;">登录页面 URL: <a href="@qrCodeUrl" target="_blank" style="word-break: break-all;">@qrCodeUrl</a></p>
             </div>
         </div>
     }
@@ -131,6 +131,7 @@
     private bool isLoading = true;
     private bool isInitialized = false;
     private bool qrCodeGenerated = false; // 跟踪二维码是否已生成
+    private bool dingTalkLoginInitialized = false; // 跟踪钉钉登录是否已初始化
 
     private string GetQrCodeImageUrl()
     {
@@ -148,18 +149,31 @@
         isInitialized = true;
         Logger.LogInformation("Index.razor OnInitialized. queryError={QueryError}", queryError);
         
+        // 如果 URL 中包含 error 参数，说明回调时出错了
+        if (!string.IsNullOrEmpty(queryError))
+        {
+            Logger.LogWarning("检测到登录错误: {Error}", queryError);
+        }
+        
         // 先显示页面内容，然后异步加载数据
         _ = LoadDataAsync();
     }
     
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // 如果已显示二维码，开始轮询检查登录状态
-        if (firstRender && !string.IsNullOrEmpty(qrCodeUrl) && string.IsNullOrEmpty(queryError))
+        // 如果已显示二维码且未初始化，初始化钉钉登录 SDK
+        if (!string.IsNullOrEmpty(qrCodeUrl) && string.IsNullOrEmpty(queryError) && !dingTalkLoginInitialized)
         {
-            _ = StartLoginStatusPolling();
+            // 等待一下，确保 DOM 已渲染
+            await Task.Delay(100);
+            await InitializeDingTalkLogin();
+            
+            // 如果是首次渲染，开始轮询检查登录状态
+            if (firstRender)
+            {
+                _ = StartLoginStatusPolling();
+            }
         }
-        await Task.CompletedTask;
     }
     
     private async Task StartLoginStatusPolling()
@@ -240,6 +254,7 @@
         try
         {
             qrCodeGenerated = false; // 重置二维码生成标志
+            dingTalkLoginInitialized = false; // 重置钉钉登录初始化标志
             var response = await ApiService.GetQrCodeAsync();
             if (response?.Success == true && response.Data != null)
             {
@@ -312,80 +327,59 @@
         }
     }
     
-    private async Task GenerateQrCode(string url)
+    private async Task InitializeDingTalkLogin()
     {
+        // 防止重复初始化
+        if (dingTalkLoginInitialized)
+        {
+            return;
+        }
+
         try
         {
-            // 直接使用在线二维码 API 生成，不依赖外部函数
-            var qrImageUrl = $"https://api.qrserver.com/v1/create-qr-code/?size=256x256&data={Uri.EscapeDataString(url)}";
-            
-            Logger.LogInformation("开始生成二维码，URL: {Url}, 图片URL: {ImageUrl}", url, qrImageUrl);
-            
-            // 使用 JavaScript 插入二维码图片，添加重试机制
-            var success = await JSRuntime.InvokeAsync<bool>("eval", $@"
-                (function() {{
-                    try {{
-                        const container = document.getElementById('qrcode');
-                        console.log('查找二维码容器:', container);
-                        
-                        if (!container) {{
-                            console.error('找不到 qrcode 容器元素');
-                            return false;
-                        }}
-                        
-                        // 清空之前的内容
-                        container.innerHTML = '';
-                        
-                        // 创建图片元素
-                        const img = document.createElement('img');
-                        img.src = '{qrImageUrl}';
-                        img.alt = '二维码';
-                        img.style.width = '256px';
-                        img.style.height = '256px';
-                        img.style.display = 'block';
-                        img.style.margin = '0 auto';
-                        img.style.border = '1px solid #ddd';
-                        img.style.borderRadius = '4px';
-                        
-                        // 添加加载成功处理
-                        img.onload = function() {{
-                            console.log('二维码图片加载成功');
-                        }};
-                        
-                        // 添加加载错误处理
-                        img.onerror = function() {{
-                            console.error('二维码图片加载失败:', img.src);
-                            container.innerHTML = '<p style=\\'color: red; padding: 20px;\\'>二维码加载失败，请点击下方按钮打开登录页面</p>';
-                        }};
-                        
-                        container.appendChild(img);
-                        console.log('二维码已插入到页面，图片URL: ' + '{qrImageUrl}');
-                        return true;
-                    }} catch (error) {{
-                        console.error('生成二维码时发生错误:', error);
-                        return false;
-                    }}
-                }})();
-            ");
-            
-            if (success)
+            if (string.IsNullOrEmpty(qrCodeUrl))
             {
-                Logger.LogInformation("二维码生成成功: {Url}", url);
+                Logger.LogWarning("qrCodeUrl 为空，无法初始化钉钉登录");
+                return;
             }
-            else
+
+            Logger.LogInformation("开始初始化钉钉登录，URL: {Url}", qrCodeUrl);
+
+            // 首先确保钉钉 SDK 已加载
+            try
             {
-                Logger.LogWarning("二维码生成可能失败，容器可能不存在");
-                // 如果失败，触发重新渲染，让 OnAfterRenderAsync 再次尝试
-                await Task.Delay(200);
+                // loadDingTalkSDK 返回 Promise，使用 InvokeAsync 等待完成
+                await JSRuntime.InvokeAsync<object>("loadDingTalkSDK");
+                Logger.LogInformation("钉钉 SDK 加载成功");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "加载钉钉 SDK 失败: {Error}", ex.Message);
+                errorMessage = $"加载钉钉 SDK 失败: {ex.Message}";
                 StateHasChanged();
+                return;
             }
+            
+            // 等待一下，确保 SDK 完全加载
+            await Task.Delay(300);
+            
+            // 获取回调地址（用于 DDLogin SDK 的 goto 参数）
+            var baseUrl = NavigationManager.BaseUri.TrimEnd('/');
+            var callbackUrl = $"{baseUrl}/api/auth/callback";
+            
+            // 初始化钉钉登录二维码
+            // 注意：DDLogin SDK 的 goto 参数应该是回调地址，而不是完整的登录 URL
+            await JSRuntime.InvokeVoidAsync("initDingTalkQRCode", qrCodeUrl, callbackUrl);
+            
+            // 标记为已初始化
+            dingTalkLoginInitialized = true;
+            
+            Logger.LogInformation("钉钉登录初始化完成，回调地址: {CallbackUrl}", callbackUrl);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "生成二维码失败: {Error}", ex.Message);
-            // 即使失败，也显示 URL，用户可以手动打开
-            // 触发重新渲染，让 OnAfterRenderAsync 再次尝试
-            await Task.Delay(200);
+            Logger.LogError(ex, "初始化钉钉登录失败: {Error}", ex.Message);
+            errorMessage = $"初始化钉钉登录失败: {ex.Message}。请刷新页面重试。";
             StateHasChanged();
         }
     }

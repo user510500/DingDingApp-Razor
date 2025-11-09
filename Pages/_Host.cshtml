@@ -78,6 +78,280 @@
     <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
     <script src="js/site.js"></script>
     <script>
+        // 加载钉钉 SDK
+        window.loadDingTalkSDK = function() {
+            return new Promise(function(resolve, reject) {
+                // 检查 SDK 是否已加载
+                if (typeof DDLogin !== 'undefined') {
+                    console.log('钉钉 SDK 已加载');
+                    resolve();
+                    return;
+                }
+                
+                // 检查是否已经在加载中
+                if (document.getElementById('dingtalk-login-sdk')) {
+                    console.log('钉钉 SDK 正在加载中...');
+                    // 等待加载完成
+                    var checkInterval = setInterval(function() {
+                        if (typeof DDLogin !== 'undefined') {
+                            clearInterval(checkInterval);
+                            console.log('钉钉 SDK 加载完成');
+                            resolve();
+                        }
+                    }, 100);
+                    
+                    // 超时处理（5秒）
+                    setTimeout(function() {
+                        clearInterval(checkInterval);
+                        if (typeof DDLogin === 'undefined') {
+                            reject(new Error('钉钉 SDK 加载超时'));
+                        }
+                    }, 5000);
+                    return;
+                }
+                
+                // 创建 script 标签
+                var script = document.createElement('script');
+                script.id = 'dingtalk-login-sdk';
+                script.src = 'https://g.alicdn.com/dingding/dinglogin/0.0.5/ddLogin.js';
+                script.async = true;
+                
+                script.onload = function() {
+                    console.log('钉钉登录 SDK 脚本加载成功');
+                    // 等待一下，确保 DDLogin 函数已定义
+                    setTimeout(function() {
+                        if (typeof DDLogin !== 'undefined') {
+                            resolve();
+                        } else {
+                            reject(new Error('钉钉 SDK 加载完成，但 DDLogin 函数未定义'));
+                        }
+                    }, 100);
+                };
+                
+                script.onerror = function() {
+                    console.error('钉钉登录 SDK 脚本加载失败');
+                    reject(new Error('钉钉 SDK 脚本加载失败，请检查网络连接'));
+                };
+                
+                document.head.appendChild(script);
+            });
+        };
+
+        // 初始化钉钉登录二维码
+        window.initDingTalkQRCode = function(qrCodeUrl, callbackUrl) {
+            console.log('开始初始化钉钉登录二维码');
+            console.log('登录URL: ', qrCodeUrl);
+            console.log('回调地址: ', callbackUrl);
+            
+            try {
+                // 查找登录容器
+                var container = document.getElementById('login_container');
+                
+                if (!container) {
+                    console.error('找不到登录容器元素 (login_container)');
+                    return;
+                }
+                
+                // 检查 DDLogin 函数是否已加载
+                if (typeof DDLogin === 'undefined') {
+                    console.error('钉钉登录SDK未加载，请检查网络连接');
+                    container.innerHTML = '<p style="color: #f00; padding: 20px;">二维码加载失败：SDK未加载，请刷新页面重试</p>';
+                    return;
+                }
+                
+                // 清空容器内容
+                container.innerHTML = '';
+                
+                // 使用钉钉官方 SDK 生成二维码
+                // 注意：根据钉钉文档，goto 参数应该是完整的登录 URL（包含 appid、redirect_uri 等）
+                // 但是，DDLogin SDK 会在这个 URL 基础上构建二维码，扫描后会通过 postMessage 发送临时授权码
+                var gotoUrl = qrCodeUrl; // 使用完整的登录 URL
+                console.log('DDLogin goto 参数（完整登录URL）:', gotoUrl);
+                
+                var obj = DDLogin({
+                    id: 'login_container',
+                    goto: encodeURIComponent(gotoUrl),
+                    style: "border:none;background-color:#FFFFFF;",
+                    width: "270",
+                    height: "270"
+                });
+                
+                console.log('钉钉官方二维码已加载，DDLogin 对象:', obj);
+                console.log('DDLogin 对象类型:', typeof obj);
+                
+                // 监听来自钉钉登录页面的消息（当用户扫描二维码后）
+                // 注意：消息监听必须在全局作用域，不能只在函数内部
+                if (!window.dingTalkMessageHandlerAdded) {
+                    console.log('添加钉钉登录消息监听器...');
+                    
+                    // 全局消息处理函数 - 记录所有消息以便调试
+                    window.handleDingTalkLoginMessage = function (event) {
+                        // 记录所有消息，不管来源
+                        console.log('=== 收到 window message（所有消息） ===');
+                        console.log('消息来源 (origin):', event.origin);
+                        console.log('消息数据 (data):', event.data);
+                        console.log('消息数据类型:', typeof event.data);
+                        console.log('完整事件:', event);
+                        
+                        // 检查消息来源（钉钉登录页面的域名）
+                        var origin = event.origin || '';
+                        var isFromDingTalk = origin.includes("dingtalk.com") || 
+                                           origin.includes("alicdn.com");
+                        
+                        // 检查数据是否是有效的授权码格式（通常是字符串，长度在10-100之间）
+                        var data = event.data;
+                        var isValidCode = data && 
+                                         typeof data === 'string' && 
+                                         data.length > 10 && 
+                                         data.length < 100 &&
+                                         /^[a-zA-Z0-9]+$/.test(data); // 只包含字母和数字
+                        
+                        console.log('是否来自钉钉:', isFromDingTalk);
+                        console.log('是否是有效授权码格式:', isValidCode);
+                        
+                        // 如果来自钉钉，或者是有效授权码格式，都尝试处理
+                        if (isFromDingTalk || isValidCode) {
+                            var loginTmpCode = data;
+                            console.log('=== 开始处理登录请求 ===');
+                            console.log('临时授权码:', loginTmpCode);
+                            
+                            // 显示处理中的提示
+                            var container = document.getElementById('login_container');
+                            if (container) {
+                                container.innerHTML = '<div style="padding: 20px; text-align: center;"><p style="color: #007bff; font-size: 16px;">正在登录...</p><p style="color: #666; margin-top: 10px; font-size: 12px;">请稍候</p></div>';
+                            }
+                            
+                            // 调用后端API进行登录
+                            fetch('/api/auth/login-by-code', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                credentials: 'include', // 重要：包含 cookies
+                                body: JSON.stringify({ code: loginTmpCode })
+                            })
+                            .then(function(response) {
+                                console.log('登录API响应状态:', response.status, response.statusText);
+                                if (!response.ok) {
+                                    return response.text().then(function(text) {
+                                        console.error('HTTP错误响应内容:', text);
+                                        throw new Error('HTTP错误: ' + response.status + ', 响应: ' + text);
+                                    });
+                                }
+                                return response.json();
+                            })
+                            .then(function(data) {
+                                console.log('登录API响应数据:', JSON.stringify(data));
+                                if (data && data.success) {
+                                    console.log('登录成功，准备跳转...');
+                                    // 显示成功提示
+                                    var container = document.getElementById('login_container');
+                                    if (container) {
+                                        container.innerHTML = '<div style="padding: 20px; text-align: center;"><p style="color: #28a745; font-size: 16px;">✓ 登录成功！</p><p style="color: #666; margin-top: 10px;">正在跳转...</p></div>';
+                                    }
+                                    // 延迟跳转，让用户看到成功提示
+                                    setTimeout(function() {
+                                        window.location.href = '/users';
+                                    }, 1000);
+                                } else {
+                                    console.error('登录失败:', data.message || data.msg || '未知错误');
+                                    var container = document.getElementById('login_container');
+                                    if (container) {
+                                        container.innerHTML = '<div style="padding: 20px; text-align: center;"><p style="color: #dc3545;">登录失败: ' + (data.message || data.msg || '未知错误') + '</p><p style="color: #666; margin-top: 10px; font-size: 12px;">请刷新页面重试</p></div>';
+                                    }
+                                }
+                            })
+                            .catch(function(error) {
+                                console.error('登录API调用失败:', error);
+                                console.error('错误堆栈:', error.stack);
+                                var container = document.getElementById('login_container');
+                                if (container) {
+                                    container.innerHTML = '<div style="padding: 20px; text-align: center;"><p style="color: #dc3545;">登录失败: ' + (error.message || '网络错误') + '</p><p style="color: #666; margin-top: 10px; font-size: 12px;">请查看浏览器控制台获取详细信息</p></div>';
+                                }
+                            });
+                        } else {
+                            console.log('消息不符合条件，忽略。来源:', origin, '数据:', data, '类型:', typeof data);
+                        }
+                    };
+                    
+                    // 添加一个全局的消息监听器，记录所有消息（用于调试）
+                    window.allMessagesListener = function(event) {
+                        console.log('【全局消息监听】来源:', event.origin, '数据:', event.data, '类型:', typeof event.data);
+                    };
+                    
+                    // 添加事件监听器 - 使用捕获阶段，确保能捕获所有消息
+                    if (typeof window.addEventListener !== 'undefined') {
+                        // 添加多个监听器，确保能捕获消息
+                        window.addEventListener('message', window.handleDingTalkLoginMessage, false);
+                        window.addEventListener('message', window.allMessagesListener, true); // 使用捕获阶段
+                        console.log('已添加 window.addEventListener 消息监听器（普通和捕获阶段）');
+                    } else if (typeof window.attachEvent !== 'undefined') {
+                        window.attachEvent('onmessage', window.handleDingTalkLoginMessage);
+                        console.log('已添加 window.attachEvent 消息监听器');
+                    } else {
+                        console.error('无法添加消息监听器：浏览器不支持');
+                    }
+                    
+                    // 也尝试监听 DDLogin 对象的事件（如果支持）
+                    if (obj && typeof obj === 'object') {
+                        try {
+                            var objKeys = Object.keys(obj);
+                            console.log('DDLogin 对象属性:', objKeys);
+                            
+                            // 检查是否有回调函数属性
+                            for (var key in obj) {
+                                if (typeof obj[key] === 'function') {
+                                    console.log('DDLogin 对象方法:', key);
+                                }
+                            }
+                            
+                            // 有些版本的 DDLogin SDK 可能提供事件回调
+                            if (typeof obj.onSuccess === 'function') {
+                                console.log('发现 DDLogin.onSuccess 回调');
+                                var originalOnSuccess = obj.onSuccess;
+                                obj.onSuccess = function(code) {
+                                    console.log('DDLogin.onSuccess 回调被触发，code:', code);
+                                    if (originalOnSuccess) {
+                                        originalOnSuccess.call(obj, code);
+                                    }
+                                    window.handleDingTalkLoginMessage({
+                                        origin: 'https://login.dingtalk.com',
+                                        data: code
+                                    });
+                                };
+                            }
+                        } catch (e) {
+                            console.warn('无法访问 DDLogin 对象属性:', e);
+                        }
+                    }
+                    
+                    // 添加测试函数
+                    window.testDingTalkMessage = function() {
+                        console.log('测试：模拟收到钉钉登录消息');
+                        window.handleDingTalkLoginMessage({
+                            origin: 'https://login.dingtalk.com',
+                            data: 'test_code_12345678901234567890'
+                        });
+                    };
+                    
+                    window.dingTalkMessageHandlerAdded = true;
+                    console.log('钉钉登录消息监听器已添加，等待扫码...');
+                    console.log('调试提示：');
+                    console.log('1. 扫描二维码后，查看控制台是否有 "收到 window message" 日志');
+                    console.log('2. 如果没有日志，可能消息没有发送，或者使用了回调 URL');
+                    console.log('3. 可以输入 window.testDingTalkMessage() 测试消息监听是否工作');
+                } else {
+                    console.log('消息监听器已存在，跳过添加');
+                }
+            } catch (e) {
+                console.error('初始化钉钉登录二维码失败:', e);
+                var container = document.getElementById('login_container');
+                if (container) {
+                    container.innerHTML = '<p style="color: #f00; padding: 20px;">二维码加载失败: ' + e.message + '</p>';
+                }
+            }
+        };
+
         // 监听 Blazor 错误
         window.addEventListener('error', (event) => {
             console.error('页面错误:', event.error, event.message, event.filename, event.lineno);
